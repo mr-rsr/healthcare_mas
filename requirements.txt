@@ -1,0 +1,15 @@
+langchain 
+pypdf
+langchain-text-splitters 
+langchain-community 
+langchain-mcp-adapters 
+mcp 
+fastapi 
+uvicorn 
+python-dotenv 
+boto3 
+pydantic
+langchain-aws
+langchain-chroma
+langgraph
+langsmith
