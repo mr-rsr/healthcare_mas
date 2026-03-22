@@ -1,10 +1,9 @@
 """
-Branch 5: Full Multi-Agent System with Supervisor Routing
+Full Multi-Agent System with Supervisor Routing
 Run: python cli.py          (FAQ only, no MCP needed)
-Run: python cli.py --full   (all agents, needs Composio MCP server)
+Run: python cli.py --full   (all agents, needs Composio MCP)
 """
 import sys
-import asyncio
 import uuid
 
 
@@ -32,16 +31,15 @@ def run_faq_only():
         print(f"\nBot: {result['messages'][-1].content}\n")
 
 
-async def run_full_system():
+def run_full_system():
     """Run the full multi-agent system with supervisor routing."""
     from graph.workflow import build_workflow
 
     print("Connecting to Composio MCP server...")
     try:
-        graph, client = await build_workflow()
+        graph, client = build_workflow()
     except Exception as e:
         print(f"Error: {e}")
-        print("Make sure Composio MCP server is running: composio mcp start")
         print("Falling back to FAQ-only mode...\n")
         run_faq_only()
         return
@@ -60,30 +58,26 @@ async def run_full_system():
 
     config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
 
-    try:
-        while True:
-            user_input = input("You: ")
-            if user_input.lower() in ["quit", "exit", "q"]:
-                print("Goodbye!")
-                break
-            if user_input.lower() == "new":
-                thread_id = str(uuid.uuid4())[:8]
-                config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
-                print(f"New thread: {thread_id}\n")
-                continue
+    while True:
+        user_input = input("You: ")
+        if user_input.lower() in ["quit", "exit", "q"]:
+            print("Goodbye!")
+            break
+        if user_input.lower() == "new":
+            thread_id = str(uuid.uuid4())[:8]
+            config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
+            print(f"New thread: {thread_id}\n")
+            continue
 
-            result = await graph.ainvoke(
-                {"messages": [("user", user_input)]}, config
-            )
-            response = result["messages"][-1]
-            print(f"\nBot: {response.content}\n")
-    finally:
-        await client.close()
+        result = graph.invoke(
+            {"messages": [("user", user_input)]}, config
+        )
+        print(f"\nBot: {result['messages'][-1].content}\n")
 
 
 def main():
     if "--full" in sys.argv:
-        asyncio.run(run_full_system())
+        run_full_system()
     else:
         run_faq_only()
 

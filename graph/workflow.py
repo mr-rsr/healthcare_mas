@@ -21,13 +21,13 @@ def route_supervisor(state: AgentState):
     return next_agent
 
 
-async def build_workflow():
-    """Build the full multi-agent StateGraph. Async because MCP tools are loaded at runtime."""
+def build_workflow():
+    """Build the full multi-agent StateGraph."""
     client = get_mcp_client()
 
     # Load MCP tools
-    calendar_tools = await get_calendar_tools(client)
-    gmail_tools = await get_gmail_tools(client)
+    calendar_tools = get_calendar_tools(client)
+    gmail_tools = get_gmail_tools(client)
 
     if not calendar_tools:
         raise RuntimeError("No calendar tools found. Is Composio MCP server running?")
