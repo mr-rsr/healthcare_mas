@@ -1,8 +1,9 @@
 """
-FAQ Agent - LangGraph ReAct agent with RAG tool
+FAQ Agent - LangGraph StateGraph with RAG tool
 Answers clinic questions using the knowledge base
 """
-from langchain.agents import create_agent
+from langgraph.graph import StateGraph, MessagesState, START, END
+from langgraph.prebuilt import ToolNode, tools_condition
 from config.model import llm
 from tools.rag_tools import search_clinic_knowledge
 
@@ -19,8 +20,23 @@ Always search the knowledge base before answering. If the information is not fou
 suggest the patient call the clinic at (555) 123-4567.
 Be friendly, concise, and professional."""
 
-faq_agent = create_agent(
-    model=llm,
-    tools=[search_clinic_knowledge],
-    system_prompt=SYSTEM_PROMPT,
-)
+tools = [search_clinic_knowledge]
+llm_with_tools = llm.bind_tools(tools)
+
+
+def call_model(state: MessagesState):
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + state["messages"]
+    response = llm_with_tools.invoke(messages)
+    return {"messages": [response]}
+
+
+# Build the graph
+builder = StateGraph(MessagesState)
+builder.add_node("call_model", call_model)
+builder.add_node("tools", ToolNode(tools))
+
+builder.add_edge(START, "call_model")
+builder.add_conditional_edges("call_model", tools_condition)
+builder.add_edge("tools", "call_model")
+
+faq_agent = builder.compile()
