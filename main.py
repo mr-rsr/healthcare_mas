@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
 
     # Try to build full multi-agent graph
     try:
-        graph, mcp_client = await build_workflow()
+        graph, mcp_client = build_workflow()
         print("Full multi-agent system ready (MCP connected)")
     except Exception as e:
         print(f"Warning: Could not connect to MCP server: {e}")
