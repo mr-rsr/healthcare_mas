@@ -1,154 +1,200 @@
-# Milestone 3: Gmail Confirmation via Composio MCP
+# Milestone 4: Memory - Checkpointer + Store API
 
 ## What You'll Build
-Add a confirmation agent that sends appointment confirmation emails via Gmail after booking. The booking flow now chains: collect details -> create calendar event -> send email.
+Add two layers of memory to the agents:
+1. **Short-term (Checkpointer)**: Multi-turn conversation persistence within a thread
+2. **Long-term (Store API)**: User preferences and booking history across threads
 
-## What's New (from Milestone 2)
+## What's New (from Milestone 3)
 ```
-NEW  agents/confirmation_agent.py   # Confirmation node (Gmail MCP tools)
-NEW  graph/confirmation_graph.py    # Confirmation StateGraph (async)
-UPD  cli.py                         # 3 modes: FAQ / Booking+Email / Email test
+NEW  config/memory.py              # Shared checkpointer + store instances
+UPD  graph/faq_graph.py            # + checkpointer for multi-turn
+UPD  graph/booking_graph.py        # + checkpointer + store
+UPD  cli.py                        # thread_id, user_id, memory demo
 ```
 
 ## Architecture
 ```
-CLI Menu
-  |
-  +-- [1] FAQ Mode -----------> faq_graph
-  |
-  +-- [2] Booking Mode -------> booking_graph
-  |                                  |
-  |                          (calendar event created?)
-  |                                  |
-  |                               YES: auto-trigger
-  |                                  |
-  |                          confirmation_graph
-  |                                  |
-  |                          (sends Gmail via MCP)
-  |
-  +-- [3] Email Test Mode ----> confirmation_graph (standalone)
+                    config/memory.py
+                    ┌──────────────────┐
+                    │  InMemorySaver   │ <-- short-term (per thread)
+                    │  InMemoryStore   │ <-- long-term (per user)
+                    └──────────────────┘
+                           |
+        +------------------+------------------+
+        |                                     |
+   faq_graph                           booking_graph
+   (checkpointer)                 (checkpointer + store)
+        |                                     |
+   Multi-turn:                        Multi-turn +
+   "Which one does                    Saves user prefs:
+    cardiology?"                      preferred doctor,
+   remembers doctors                  booking history
+   from prev turn
 ```
 
-## Prerequisites: Add Gmail to Composio
+## Two Memory Layers Explained
 
-If you already set up Google Calendar in Milestone 2:
+### Short-Term: InMemorySaver (Checkpointer)
 
-```bash
-composio add gmail
+Persists conversation state within a thread. Each `thread_id` is a separate conversation.
+
+```python
+from langgraph.checkpoint.memory import InMemorySaver
+
+checkpointer = InMemorySaver()
+graph = builder.compile(checkpointer=checkpointer)
+
+# Same thread_id = conversation continues with full history
+config = {"configurable": {"thread_id": "conv_abc123"}}
+
+# Turn 1
+graph.invoke({"messages": [("user", "What doctors do you have?")]}, config)
+
+# Turn 2 - agent remembers the conversation
+graph.invoke({"messages": [("user", "Which one does cardiology?")]}, config)
+# Answer: "Dr. James Wilson" -- remembered from turn 1!
 ```
-This opens a browser for Google OAuth. Grant Gmail send permissions.
 
-Then restart the MCP server:
-```bash
-composio mcp start
+**Key concepts:**
+- `thread_id` groups messages into a conversation
+- New `thread_id` = fresh conversation
+- Same `thread_id` = continues where you left off
+- Messages are persisted automatically by the checkpointer
+
+### Long-Term: InMemoryStore (Store API)
+
+Persists user data across different conversations/threads.
+
+```python
+from langgraph.store.memory import InMemoryStore
+
+store = InMemoryStore()
+graph = builder.compile(checkpointer=checkpointer, store=store)
+
+# WRITE: Save user preferences
+store.put(
+    ("users", "user_123", "preferences"),  # namespace tuple
+    "doctor_pref",                          # key
+    {"doctor": "Dr. Chen", "time": "morning"}  # value
+)
+
+# READ: Retrieve user preferences
+prefs = store.search(("users", "user_123", "preferences"))
+if prefs:
+    print(prefs[0].value)  # {"doctor": "Dr. Chen", "time": "morning"}
 ```
+
+**Key concepts:**
+- Namespace tuples organize data: `("users", user_id, "preferences")`
+- `store.put()` writes, `store.search()` reads
+- Data persists across threads (different conversations, same user)
+- InMemoryStore loses data on restart (use PostgresStore for production)
+
+### How They Work Together
+
+| | Short-Term (Checkpointer) | Long-Term (Store) |
+|--|--------------------------|-------------------|
+| **What** | Conversation messages | User preferences, history |
+| **Scope** | Per `thread_id` | Per `user_id` |
+| **Survives** | Multiple turns in same chat | Multiple conversations |
+| **Access** | Automatic via state | Explicit: `store.put()`, `store.search()` |
 
 ## Step-by-Step Code
 
-### Step 1: Confirmation Agent Node (`agents/confirmation_agent.py`)
+### Step 1: Shared Memory Config (`config/memory.py`)
 
-Same factory pattern as booking agent, but with Gmail tools:
+Centralize memory instances so all graphs share the same store:
 
 ```python
-def create_confirmation_node(gmail_tools):
-    llm_with_tools = llm.bind_tools(gmail_tools)
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.store.memory import InMemoryStore
 
-    def confirmation_node(state: MessagesState):
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + state["messages"]
-        response = llm_with_tools.invoke(messages)
-        return {"messages": [response]}
-
-    return confirmation_node, gmail_tools
+checkpointer = InMemorySaver()
+store = InMemoryStore()
 ```
 
-**Key concepts:**
-- Same pattern as booking_agent — factory that accepts MCP tools
-- System prompt includes email template details (clinic address, cancellation policy)
-- LLM decides how to format the email and which Gmail tool to call
+### Step 2: Update FAQ Graph (`graph/faq_graph.py`)
 
-### Step 2: Confirmation Graph (`graph/confirmation_graph.py`)
-
-Same async builder pattern:
+Just add `checkpointer` to `compile()`:
 
 ```python
-async def build_confirmation_graph():
-    client = get_mcp_client()
-    gmail_tools = await get_gmail_tools(client)
-    confirmation_node, tools = create_confirmation_node(gmail_tools)
+from config.memory import checkpointer
 
-    builder = StateGraph(MessagesState)
-    builder.add_node("confirmation_agent", confirmation_node)
-    builder.add_node("tools", ToolNode(tools))
+# ... same StateGraph setup ...
 
-    builder.add_edge(START, "confirmation_agent")
-    builder.add_conditional_edges("confirmation_agent", tools_condition)
-    builder.add_edge("tools", "confirmation_agent")
-
-    return builder.compile(), client
+faq_graph = builder.compile(checkpointer=checkpointer)
 ```
 
-### Step 3: Chaining Booking -> Confirmation (`cli.py`)
+Now the FAQ agent remembers multi-turn conversations when you pass `thread_id`.
 
-After booking creates a calendar event, automatically trigger the confirmation email:
+### Step 3: Update Booking Graph (`graph/booking_graph.py`)
+
+Add both `checkpointer` and `store`:
 
 ```python
-# In the booking loop, after detecting a calendar tool was used:
-if calendar_tool_was_used:
-    print("Sending confirmation email...")
-    summary = f"Send confirmation email based on: {response.content}"
-    confirm_result = await confirmation_graph.ainvoke(
-        {"messages": [("user", summary)]}
-    )
+from config.memory import checkpointer, store
+
+# ... same StateGraph setup ...
+
+return builder.compile(checkpointer=checkpointer, store=store), client
 ```
 
-**Key concepts:**
-- Two separate graphs chained in the CLI (not yet a single multi-agent graph)
-- The booking result is passed as context to the confirmation agent
-- In Milestone 5, these will be wired together in one StateGraph with a supervisor
+### Step 4: Updated CLI (`cli.py`)
 
-### Step 4: MCP Client Reuse (`tools/mcp_tools.py`)
-
-Both agents use `get_mcp_client()` which connects to the same Composio server.
-Calendar and Gmail tools are filtered by name:
+Thread and user management:
 
 ```python
-async def get_calendar_tools(client):
-    tools = await client.get_tools()
-    return [t for t in tools if "calendar" in t.name.lower()]
+# Session setup
+user_id = input("Enter your user ID: ") or "demo_user"
+thread_id = str(uuid.uuid4())[:8]
 
-async def get_gmail_tools(client):
-    tools = await client.get_tools()
-    return [t for t in tools if "gmail" in t.name.lower()]
+# Pass thread_id in config for multi-turn
+config = {"configurable": {"thread_id": thread_id}}
+faq_graph.invoke({"messages": [("user", question)]}, config)
+
+# New thread = fresh conversation
+thread_id = str(uuid.uuid4())[:8]  # press 'n' in menu
+
+# Store demo: view saved preferences
+store.search(("users",))
 ```
 
 ## Running It
 
-### Terminal 1: Start Composio MCP server
-```bash
-composio mcp start
-```
-
-### Terminal 2: Run the CLI
 ```bash
 python cli.py
 ```
 
-### Test booking + email flow:
+### Test multi-turn (FAQ):
 ```
-Choose: 2
-You: Book an appointment for John Smith, john@email.com, with Dr. Chen, Monday 10am, annual checkup
-Bot: I've created a calendar event...
+Enter user ID: demo_user
+Choose: 1
 
-Sending confirmation email...
-Bot: I've sent a confirmation email to john@email.com with the appointment details.
-```
+You: What doctors work here?
+Bot: We have Dr. Sarah Chen (General), Dr. James Wilson (Cardiology)...
 
-### Test email standalone:
-```
-Choose: 3
-You: Send a confirmation to test@email.com for Dr. Patel appointment on March 25 at 2pm
-Bot: I've sent the confirmation email...
+You: Which one does cardiology?
+Bot: Dr. James Wilson specializes in Cardiology...  <-- remembers context!
 ```
 
-## What's Next (Milestone 4)
-Add memory: conversation persistence (checkpointer) and user preferences (Store API).
+### Test new thread:
+```
+Choose: n    (new thread)
+Choose: 1
+
+You: Which one does cardiology?
+Bot: Let me search...  <-- fresh conversation, no prior context
+```
+
+### Test memory store:
+```
+Choose: 3    (view memory)
+--- Memory Store Contents ---
+  Namespace: ('users', 'demo_user', 'preferences')
+  Key: last_booking
+  Value: {'doctor': 'Dr. Chen', 'timestamp': 'a3b4c5d6'}
+```
+
+## What's Next (Milestone 5)
+Wire all agents into a single StateGraph with supervisor routing.

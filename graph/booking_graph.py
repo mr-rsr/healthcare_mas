@@ -4,6 +4,7 @@ Must be initialized async because MCP tools are loaded at runtime
 """
 from langgraph.graph import StateGraph, MessagesState, START
 from langgraph.prebuilt import ToolNode, tools_condition
+from config.memory import checkpointer, store
 from agents.booking_agent import create_booking_node
 from tools.mcp_tools import get_mcp_client, get_calendar_tools
 
@@ -26,4 +27,4 @@ async def build_booking_graph():
     builder.add_conditional_edges("booking_agent", tools_condition)
     builder.add_edge("tools", "booking_agent")
 
-    return builder.compile(), client
+    return builder.compile(checkpointer=checkpointer, store=store), client
