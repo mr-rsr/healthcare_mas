@@ -1,7 +1,7 @@
 """
 FAQ Agent - Node function for answering clinic questions using RAG
 """
-from langgraph.graph import MessagesState
+from agents.state import AgentState
 from config.model import llm
 from tools.rag_tools import search_clinic_knowledge
 
@@ -22,7 +22,7 @@ tools = [search_clinic_knowledge]
 llm_with_tools = llm.bind_tools(tools)
 
 
-def faq_node(state: MessagesState):
+def faq_node(state: AgentState):
     """LLM call with RAG tools bound."""
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + state["messages"]
     response = llm_with_tools.invoke(messages)

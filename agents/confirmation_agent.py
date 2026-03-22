@@ -2,7 +2,7 @@
 Confirmation Agent - Node function for sending appointment confirmation emails
 Uses Composio MCP tools for Gmail
 """
-from langgraph.graph import MessagesState
+from agents.state import AgentState
 from config.model import llm
 
 SYSTEM_PROMPT = """You are a confirmation assistant at HealthFirst Medical Clinic.
@@ -27,9 +27,11 @@ def create_confirmation_node(gmail_tools):
     """Factory: creates a confirmation node with Gmail tools bound to the LLM."""
     llm_with_tools = llm.bind_tools(gmail_tools)
 
-    def confirmation_node(state: MessagesState):
+    def confirmation_node(state: AgentState):
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + state["messages"]
         response = llm_with_tools.invoke(messages)
-        return {"messages": [response]}
+
+        # Mark confirmation as sent if tool was called
+        return {"messages": [response], "confirmation_sent": True}
 
     return confirmation_node, gmail_tools

@@ -1,146 +1,91 @@
 """
-Branch 4: FAQ + Booking + Email + Memory
-Run: python cli.py
+Branch 5: Full Multi-Agent System with Supervisor Routing
+Run: python cli.py          (FAQ only, no MCP needed)
+Run: python cli.py --full   (all agents, needs Composio MCP server)
 """
+import sys
 import asyncio
 import uuid
-from graph.faq_graph import faq_graph
-from config.memory import store
 
 
-def run_faq(thread_id: str):
-    """Interactive FAQ chat loop with multi-turn memory."""
+def run_faq_only():
+    """Run FAQ-only mode (no MCP server needed)."""
+    from graph.workflow import build_faq_only_workflow
+
+    graph = build_faq_only_workflow()
+    thread_id = str(uuid.uuid4())[:8]
     config = {"configurable": {"thread_id": thread_id}}
 
-    print("\n--- FAQ Mode ---")
+    print("=" * 50)
+    print("  HealthFirst Medical Clinic")
+    print("  FAQ Agent (multi-turn)")
+    print("=" * 50)
     print(f"Thread: {thread_id}")
-    print("Ask about clinic hours, doctors, policies, etc.")
-    print("Multi-turn: the bot remembers your conversation!")
-    print("Type 'back' to return to menu\n")
+    print("Type 'quit' to exit\n")
 
     while True:
         user_input = input("You: ")
-        if user_input.lower() in ["back", "menu", "b"]:
+        if user_input.lower() in ["quit", "exit", "q"]:
+            print("Goodbye!")
             break
-        result = faq_graph.invoke({"messages": [("user", user_input)]}, config)
+        result = graph.invoke({"messages": [("user", user_input)]}, config)
         print(f"\nBot: {result['messages'][-1].content}\n")
 
 
-async def run_booking(thread_id: str, user_id: str):
-    """Interactive booking flow with memory."""
-    from graph.booking_graph import build_booking_graph
-    from graph.confirmation_graph import build_confirmation_graph
+async def run_full_system():
+    """Run the full multi-agent system with supervisor routing."""
+    from graph.workflow import build_workflow
 
-    config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
-
-    print("\nConnecting to Composio MCP server...")
+    print("Connecting to Composio MCP server...")
     try:
-        booking_graph, booking_client = await build_booking_graph()
-        confirmation_graph, confirmation_client = await build_confirmation_graph()
+        graph, client = await build_workflow()
     except Exception as e:
         print(f"Error: {e}")
         print("Make sure Composio MCP server is running: composio mcp start")
+        print("Falling back to FAQ-only mode...\n")
+        run_faq_only()
         return
 
-    # Check if user has saved preferences
-    prefs = store.search(("users", user_id, "preferences"))
-    if prefs:
-        pref_data = prefs[0].value
-        print(f"\nWelcome back! I remember you prefer {pref_data.get('doctor', 'no preference')}.")
+    user_id = input("\nEnter user ID (or Enter for 'demo_user'): ").strip() or "demo_user"
+    thread_id = str(uuid.uuid4())[:8]
 
-    print("\n--- Booking Mode ---")
-    print(f"Thread: {thread_id} | User: {user_id}")
-    print("I'll help you book an appointment. Multi-turn enabled!")
-    print("Type 'back' to return to menu\n")
+    print("=" * 50)
+    print("  HealthFirst Medical Clinic")
+    print("  Multi-Agent System")
+    print("=" * 50)
+    print(f"User: {user_id} | Thread: {thread_id}")
+    print("Ask questions, book appointments, or say goodbye.")
+    print("The supervisor routes your request automatically!")
+    print("Type 'quit' to exit, 'new' for new thread\n")
+
+    config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
 
     try:
         while True:
             user_input = input("You: ")
-            if user_input.lower() in ["back", "menu", "b"]:
+            if user_input.lower() in ["quit", "exit", "q"]:
+                print("Goodbye!")
                 break
+            if user_input.lower() == "new":
+                thread_id = str(uuid.uuid4())[:8]
+                config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
+                print(f"New thread: {thread_id}\n")
+                continue
 
-            result = await booking_graph.ainvoke(
+            result = await graph.ainvoke(
                 {"messages": [("user", user_input)]}, config
             )
             response = result["messages"][-1]
             print(f"\nBot: {response.content}\n")
-
-            # Check if booking was completed
-            if any(
-                hasattr(m, "type") and m.type == "tool"
-                and "calendar" in getattr(m, "name", "").lower()
-                for m in result["messages"]
-            ):
-                # Save user preference for next time
-                store.put(
-                    ("users", user_id, "preferences"),
-                    "last_booking",
-                    {"doctor": "from conversation", "timestamp": str(uuid.uuid4())[:8]},
-                )
-
-                print("Sending confirmation email...")
-                summary = f"Send a confirmation email based on this booking: {response.content}"
-                confirm_result = await confirmation_graph.ainvoke(
-                    {"messages": [("user", summary)]}
-                )
-                print(f"\nBot: {confirm_result['messages'][-1].content}\n")
     finally:
-        await booking_client.close()
-        await confirmation_client.close()
-
-
-def show_memory_demo():
-    """Show what's in the store (for demo purposes)."""
-    print("\n--- Memory Store Contents ---")
-    all_items = store.search(("users",))
-    if not all_items:
-        print("Store is empty. Book an appointment to save preferences!")
-    else:
-        for item in all_items:
-            print(f"  Namespace: {item.namespace}")
-            print(f"  Key: {item.key}")
-            print(f"  Value: {item.value}")
-            print()
-    print("---\n")
+        await client.close()
 
 
 def main():
-    print("=" * 50)
-    print("  HealthFirst Medical Clinic")
-    print("  FAQ + Booking + Memory")
-    print("=" * 50)
-
-    # Session setup
-    user_id = input("\nEnter your user ID (or press Enter for 'demo_user'): ").strip()
-    if not user_id:
-        user_id = "demo_user"
-
-    thread_id = str(uuid.uuid4())[:8]
-    print(f"User: {user_id} | New thread: {thread_id}")
-
-    while True:
-        print("\nWhat would you like to do?")
-        print("  1. Ask a question (FAQ) - multi-turn")
-        print("  2. Book an appointment (+ auto email)")
-        print("  3. View memory store")
-        print("  n. New conversation thread")
-        print("  q. Quit")
-        choice = input("\nChoose: ").strip()
-
-        if choice == "1":
-            run_faq(thread_id)
-        elif choice == "2":
-            asyncio.run(run_booking(thread_id, user_id))
-        elif choice == "3":
-            show_memory_demo()
-        elif choice.lower() == "n":
-            thread_id = str(uuid.uuid4())[:8]
-            print(f"New thread: {thread_id}")
-        elif choice.lower() in ["q", "quit", "exit"]:
-            print("Goodbye!")
-            break
-        else:
-            print("Invalid choice.")
+    if "--full" in sys.argv:
+        asyncio.run(run_full_system())
+    else:
+        run_faq_only()
 
 
 if __name__ == "__main__":

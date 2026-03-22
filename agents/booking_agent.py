@@ -2,7 +2,7 @@
 Booking Agent - Node function for appointment booking via Google Calendar
 Uses Composio MCP tools for calendar event creation
 """
-from langgraph.graph import MessagesState
+from agents.state import AgentState
 from config.model import llm
 
 SYSTEM_PROMPT = """You are a booking assistant at HealthFirst Medical Clinic.
@@ -24,7 +24,7 @@ def create_booking_node(calendar_tools):
     """Factory: creates a booking node with calendar tools bound to the LLM."""
     llm_with_tools = llm.bind_tools(calendar_tools)
 
-    def booking_node(state: MessagesState):
+    def booking_node(state: AgentState):
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + state["messages"]
         response = llm_with_tools.invoke(messages)
         return {"messages": [response]}
