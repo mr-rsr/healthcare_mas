@@ -1,166 +1,169 @@
-# Milestone 5: Full Multi-Agent System with Supervisor
+# Milestone 6: FastAPI REST API
 
 ## What You'll Build
-Wire all agents into a single LangGraph StateGraph with a supervisor that automatically routes user requests to the right agent.
+Serve the multi-agent system via FastAPI with REST endpoints for chat, streaming, health check, and document ingestion.
 
-## What's New (from Milestone 4)
+## What's New (from Milestone 5)
 ```
-NEW  agents/state.py               # Shared AgentState TypedDict
-NEW  agents/supervisor.py          # Supervisor routing with structured output
-NEW  graph/workflow.py             # Full StateGraph with all agents + routing
-UPD  agents/faq_agent.py           # Uses AgentState instead of MessagesState
-UPD  agents/booking_agent.py       # Uses AgentState
-UPD  agents/confirmation_agent.py  # Uses AgentState
-UPD  cli.py                        # --full flag for multi-agent mode
+NEW  main.py                       # FastAPI application
+UPD  cli.py                        # Kept for local testing
 ```
 
 ## Architecture
 ```
-User Message
+Client (curl / frontend / Streamlit)
     |
     v
-[supervisor] -- structured output --> RouteDecision
-    |                                    |
-    +-- "faq_agent" -----> [faq_agent] --+--> [faq_tools] (RAG)
-    |                          |              |
-    |                          +<-------------+
-    |                          |
-    |                          +--> back to [supervisor]
+FastAPI (main.py)
     |
-    +-- "booking_agent" -> [booking_agent] --+--> [booking_tools] (Calendar MCP)
-    |                          |                   |
-    |                          +<------------------+
-    |                          |
-    |                    (booking_complete?)
-    |                     YES: [confirmation_agent] --+--> [confirmation_tools] (Gmail MCP)
-    |                          |                           |
-    |                          +<--------------------------+
-    |                          |
-    |                          +--> back to [supervisor]
+    +-- POST /chat          --> graph.ainvoke() --> JSON response
+    +-- POST /chat/stream   --> graph.astream_events() --> SSE
+    +-- POST /ingest        --> RAG pipeline
+    +-- GET  /health        --> status check
     |
-    +-- "FINISH" -------> END
+    v
+graph/workflow.py (same graph as CLI)
 ```
+
+## Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/chat` | Send message, get JSON response |
+| POST | `/chat/stream` | Server-Sent Events streaming |
+| POST | `/ingest` | Trigger RAG document ingestion |
+| GET | `/health` | Health check (mode + MCP status) |
 
 ## Key Concepts
 
-### 1. Custom State (`agents/state.py`)
+### 1. Lifespan (Startup/Shutdown)
 
-Shared state across all agents — more than just messages:
-
-```python
-class AgentState(TypedDict):
-    messages: Annotated[list[BaseMessage], add_messages]
-    next_agent: str              # supervisor's routing decision
-    booking_details: Optional[BookingDetails]
-    booking_complete: bool
-    confirmation_sent: bool
-```
-
-**Why custom state?**
-- `MessagesState` only has `messages`
-- We need `next_agent` for routing, `booking_complete` for flow control
-- `add_messages` reducer appends new messages (doesn't replace)
-
-### 2. Supervisor with Structured Output (`agents/supervisor.py`)
-
-Deterministic routing using Pydantic model:
+FastAPI lifespan manages MCP client connection:
 
 ```python
-class RouteDecision(BaseModel):
-    next_agent: str   # "faq_agent", "booking_agent", or "FINISH"
-    reasoning: str
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global graph, mcp_client
 
-router_llm = llm.with_structured_output(RouteDecision)
+    # Startup: build graph, connect to MCP
+    try:
+        graph, mcp_client = await build_workflow()
+    except:
+        graph = build_faq_only_workflow()  # fallback
 
-def supervisor_node(state: AgentState):
-    decision = router_llm.invoke(messages)
-    return {"next_agent": decision.next_agent}
+    yield
+
+    # Shutdown: close MCP client
+    if mcp_client:
+        await mcp_client.close()
 ```
 
 **Key concepts:**
-- `with_structured_output()` forces LLM to return valid JSON matching the Pydantic schema
-- No string parsing — guaranteed to get one of the valid agent names
-- `reasoning` field helps with debugging (why did it route there?)
+- Lifespan runs once at startup and shutdown
+- MCP client is shared across all requests
+- Graceful fallback to FAQ-only if MCP is unavailable
 
-### 3. Conditional Edges (`graph/workflow.py`)
-
-The graph uses conditional edges for routing:
+### 2. Chat Endpoint
 
 ```python
-# Supervisor routes to the right agent
-builder.add_conditional_edges("supervisor", route_supervisor, {
-    "faq_agent": "faq_agent",
-    "booking_agent": "booking_agent",
-    END: END,
-})
+class ChatRequest(BaseModel):
+    message: str
+    user_id: str = "default_user"
+    thread_id: str | None = None    # auto-generated if not provided
 
-# Each agent checks: need tools? or back to supervisor?
-builder.add_conditional_edges("faq_agent", route_after_faq, {
-    "faq_tools": "faq_tools",
-    "supervisor": "supervisor",
-})
+@app.post("/chat")
+async def chat(request: ChatRequest):
+    config = {"configurable": {
+        "thread_id": thread_id,
+        "user_id": request.user_id,
+    }}
+    result = await graph.ainvoke(
+        {"messages": [("user", request.message)]}, config
+    )
+    return {"response": result["messages"][-1].content, ...}
 ```
 
 **Key concepts:**
-- `add_conditional_edges(node, function, mapping)` — function returns a key, mapping resolves to next node
-- Each agent has its own tool node (faq_tools, booking_tools, confirmation_tools)
-- After tool execution, control returns to the agent for another LLM call
-- After the agent responds (no tool calls), control goes back to supervisor
+- `thread_id` enables multi-turn conversations (same thread = same conversation)
+- `user_id` enables long-term memory (Store API)
+- Auto-generates thread_id if not provided
 
-### 4. Separate Tool Nodes
-
-Each agent gets its own ToolNode to avoid tool name conflicts:
+### 3. Streaming Endpoint (SSE)
 
 ```python
-builder.add_node("faq_tools", ToolNode(faq_tools))           # RAG
-builder.add_node("booking_tools", ToolNode(booking_tools))    # Calendar MCP
-builder.add_node("confirmation_tools", ToolNode(gmail_tools)) # Gmail MCP
+@app.post("/chat/stream")
+async def chat_stream(request: ChatRequest):
+    async def event_stream():
+        async for event in graph.astream_events(input, config, version="v2"):
+            if event["event"] == "on_chat_model_stream":
+                chunk = event["data"]["chunk"]
+                if chunk.content:
+                    yield f"data: {chunk.content}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 ```
 
-### 5. Booking -> Confirmation Chain
-
-After booking completes, automatically triggers confirmation:
-
-```python
-def route_after_booking(state):
-    if state["messages"][-1].tool_calls:
-        return "booking_tools"
-    if state.get("booking_complete"):
-        return "confirmation_agent"    # auto-trigger email
-    return "supervisor"
-```
+**Key concepts:**
+- `astream_events` streams LangGraph events in real-time
+- Filter for `on_chat_model_stream` to get LLM output tokens
+- SSE format: `data: <content>\n\n`
+- Thread ID sent at end: `data: [THREAD:abc123]\n\n`
 
 ## Running It
 
-### FAQ-only mode (no MCP needed):
+### Start the server:
 ```bash
-python cli.py
+# FAQ-only mode (no MCP needed):
+uvicorn main:app --reload
+
+# Full mode (start Composio MCP first):
+composio mcp start   # Terminal 1
+uvicorn main:app --reload   # Terminal 2
 ```
 
-### Full multi-agent mode (needs Composio MCP):
+### Test with curl:
+
+#### Health check:
 ```bash
-# Terminal 1: Start MCP server
-composio mcp start
-
-# Terminal 2: Run CLI
-python cli.py --full
+curl http://localhost:8000/health
+# {"status":"healthy","mode":"faq_only","mcp_connected":false}
 ```
 
-### Test supervisor routing:
-```
-You: What are your hours?
-Bot: [supervisor -> faq_agent] Our hours are Mon-Fri 9-5, Thu until 7...
-
-You: I want to book an appointment
-Bot: [supervisor -> booking_agent] I'd be happy to help! What's your name?
-
-You: John Smith
-Bot: [supervisor -> booking_agent] And your email?
-(booking_agent continues collecting details)
-
-You: Thanks, bye!
-Bot: [supervisor -> FINISH] Goodbye!
+#### Chat:
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What are your hours?", "user_id": "demo"}'
+# {"response":"Our hours are Mon-Fri 9-5...","thread_id":"a1b2c3d4","user_id":"demo"}
 ```
 
-## What's Next (Milestone 6)
-Add FastAPI endpoints to serve the agent via REST API.
+#### Multi-turn (same thread):
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Which one does cardiology?", "user_id": "demo", "thread_id": "a1b2c3d4"}'
+```
+
+#### Streaming:
+```bash
+curl -X POST http://localhost:8000/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What services do you offer?", "user_id": "demo"}'
+# data: We offer
+# data:  a range
+# data:  of services...
+# data: [DONE]
+```
+
+#### Ingest documents:
+```bash
+curl -X POST http://localhost:8000/ingest
+# {"status":"success","chunks":140,"files":3}
+```
+
+### Interactive docs:
+Open http://localhost:8000/docs for Swagger UI.
+
+## What's Next (Main Branch)
+Add Streamlit UI that imports the graph directly (no API calls).
