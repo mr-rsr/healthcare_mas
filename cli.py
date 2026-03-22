@@ -2,7 +2,6 @@
 Branch 2: FAQ Agent + Booking Agent
 Run: python cli.py
 """
-import asyncio
 from graph.faq_graph import faq_graph
 
 
@@ -20,31 +19,28 @@ def run_faq():
         print(f"\nBot: {result['messages'][-1].content}\n")
 
 
-async def run_booking():
+def run_booking():
     """Interactive booking chat loop with MCP calendar tools."""
     from graph.booking_graph import build_booking_graph
 
     print("\nConnecting to Composio MCP server...")
     try:
-        booking_graph, client = await build_booking_graph()
+        booking_graph, client = build_booking_graph()
     except Exception as e:
         print(f"Error: {e}")
-        print("Make sure Composio MCP server is running: composio mcp start")
+        print("Make sure Composio MCP server is running.")
         return
 
     print("\n--- Booking Mode ---")
     print("I'll help you book an appointment.")
     print("Type 'back' to return to menu\n")
 
-    try:
-        while True:
-            user_input = input("You: ")
-            if user_input.lower() in ["back", "menu", "b"]:
-                break
-            result = await booking_graph.ainvoke({"messages": [("user", user_input)]})
-            print(f"\nBot: {result['messages'][-1].content}\n")
-    finally:
-        await client.close()
+    while True:
+        user_input = input("You: ")
+        if user_input.lower() in ["back", "menu", "b"]:
+            break
+        result = booking_graph.invoke({"messages": [("user", user_input)]})
+        print(f"\nBot: {result['messages'][-1].content}\n")
 
 
 def main():
@@ -63,7 +59,7 @@ def main():
         if choice == "1":
             run_faq()
         elif choice == "2":
-            asyncio.run(run_booking())
+            run_booking()
         elif choice.lower() in ["q", "quit", "exit"]:
             print("Goodbye!")
             break
