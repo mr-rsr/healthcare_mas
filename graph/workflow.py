@@ -21,33 +21,6 @@ def route_supervisor(state: AgentState):
     return next_agent
 
 
-def route_after_faq(state: AgentState):
-    """After FAQ responds, check if it needs tools or go back to supervisor."""
-    last = state["messages"][-1]
-    if hasattr(last, "tool_calls") and last.tool_calls:
-        return "faq_tools"
-    return "supervisor"
-
-
-def route_after_booking(state: AgentState):
-    """After booking responds, check if it needs tools or go back to supervisor."""
-    last = state["messages"][-1]
-    if hasattr(last, "tool_calls") and last.tool_calls:
-        return "booking_tools"
-    # If booking just completed (tool result came back), trigger confirmation
-    if state.get("booking_complete"):
-        return "confirmation_agent"
-    return "supervisor"
-
-
-def route_after_confirmation(state: AgentState):
-    """After confirmation responds, check if it needs tools or go back to supervisor."""
-    last = state["messages"][-1]
-    if hasattr(last, "tool_calls") and last.tool_calls:
-        return "confirmation_tools"
-    return "supervisor"
-
-
 async def build_workflow():
     """Build the full multi-agent StateGraph. Async because MCP tools are loaded at runtime."""
     client = get_mcp_client()
@@ -76,33 +49,34 @@ async def build_workflow():
     builder.add_node("confirmation_agent", confirmation_node)
     builder.add_node("confirmation_tools", ToolNode(confirmation_tools_list))
 
-    # Edges
+    # Edges: START -> supervisor
     builder.add_edge(START, "supervisor")
+
+    # Supervisor routes to the right agent or END
     builder.add_conditional_edges("supervisor", route_supervisor, {
         "faq_agent": "faq_agent",
         "booking_agent": "booking_agent",
         END: END,
     })
 
-    # FAQ: call tools if needed, then back to supervisor
-    builder.add_conditional_edges("faq_agent", route_after_faq, {
-        "faq_tools": "faq_tools",
-        "supervisor": "supervisor",
+    # FAQ: tools_condition routes to "faq_tools" if tool calls, else back to "supervisor"
+    builder.add_conditional_edges("faq_agent", tools_condition, {
+        "tools": "faq_tools",
+        END: "supervisor",
     })
     builder.add_edge("faq_tools", "faq_agent")
 
-    # Booking: call tools if needed, then confirmation or supervisor
-    builder.add_conditional_edges("booking_agent", route_after_booking, {
-        "booking_tools": "booking_tools",
-        "confirmation_agent": "confirmation_agent",
-        "supervisor": "supervisor",
+    # Booking: tools_condition routes to "booking_tools" if tool calls, else to "confirmation_agent"
+    builder.add_conditional_edges("booking_agent", tools_condition, {
+        "tools": "booking_tools",
+        END: "confirmation_agent",
     })
     builder.add_edge("booking_tools", "booking_agent")
 
-    # Confirmation: call tools if needed, then back to supervisor
-    builder.add_conditional_edges("confirmation_agent", route_after_confirmation, {
-        "confirmation_tools": "confirmation_tools",
-        "supervisor": "supervisor",
+    # Confirmation: tools_condition routes to "confirmation_tools" if tool calls, else back to "supervisor"
+    builder.add_conditional_edges("confirmation_agent", tools_condition, {
+        "tools": "confirmation_tools",
+        END: "supervisor",
     })
     builder.add_edge("confirmation_tools", "confirmation_agent")
 
