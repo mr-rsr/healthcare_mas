@@ -8,9 +8,9 @@ A LangGraph-powered FAQ agent that answers clinic questions using RAG (Retrieval
 User Question
     |
     v
-[LangGraph StateGraph]
+[LangGraph StateGraph]  (graph/faq_graph.py)
     |
-    +--> call_model (LLM decides: answer or use tool?)
+    +--> faq_agent node  (agents/faq_agent.py)
     |        |
     |        +--> tools_condition (has tool calls?)
     |        |        |
@@ -18,7 +18,7 @@ User Question
     |        |        |
     |        |        +--> RAG Retriever (Chroma DB) --> return docs
     |        |        |
-    |        |        +--> back to call_model with results
+    |        |        +--> back to faq_agent with results
     |        |
     |        NO: return final answer --> END
 ```
@@ -35,7 +35,10 @@ MAS/
 │   └── model.py            # Shared LLM + Embeddings (AWS Bedrock)
 ├── agents/
 │   ├── __init__.py
-│   └── faq_agent.py        # LangGraph StateGraph agent
+│   └── faq_agent.py        # Node function + tools (agent logic)
+├── graph/
+│   ├── __init__.py
+│   └── faq_graph.py        # StateGraph wiring (graph definition)
 ├── tools/
 │   ├── __init__.py
 │   └── rag_tools.py        # RAG search tool
@@ -146,34 +149,47 @@ def search_clinic_knowledge(query: str) -> str:
 - `@tool` decorator - Makes a Python function callable by LangGraph agents
 - The docstring becomes the tool description the LLM reads to decide when to use it
 
-### Step 6: Build the LangGraph agent (`agents/faq_agent.py`)
+### Step 6: Create the agent node (`agents/faq_agent.py`)
 
-This is the core - a **StateGraph** with two nodes and conditional routing:
+The agent node defines the LLM call logic with tools bound:
 
 ```python
-from langgraph.graph import StateGraph, MessagesState, START, END
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.graph import MessagesState
 from config.model import llm
 from tools.rag_tools import search_clinic_knowledge
 
 tools = [search_clinic_knowledge]
 llm_with_tools = llm.bind_tools(tools)
 
-def call_model(state: MessagesState):
+def faq_node(state: MessagesState):
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + state["messages"]
     response = llm_with_tools.invoke(messages)
     return {"messages": [response]}
+```
 
-# Build the graph
+**Key concepts:**
+- `bind_tools()` - Tells the LLM what tools are available
+- The node function takes state, calls LLM, returns updated state
+- Agent logic is separated from graph wiring
+
+### Step 7: Wire the graph (`graph/faq_graph.py`)
+
+The graph connects the agent node, tool node, and routing logic:
+
+```python
+from langgraph.graph import StateGraph, MessagesState, START
+from langgraph.prebuilt import ToolNode, tools_condition
+from agents.faq_agent import faq_node, tools
+
 builder = StateGraph(MessagesState)
-builder.add_node("call_model", call_model)
+builder.add_node("faq_agent", faq_node)
 builder.add_node("tools", ToolNode(tools))
 
-builder.add_edge(START, "call_model")
-builder.add_conditional_edges("call_model", tools_condition)
-builder.add_edge("tools", "call_model")
+builder.add_edge(START, "faq_agent")
+builder.add_conditional_edges("faq_agent", tools_condition)
+builder.add_edge("tools", "faq_agent")
 
-faq_agent = builder.compile()
+faq_graph = builder.compile()
 ```
 
 **Key LangGraph concepts:**
@@ -181,10 +197,10 @@ faq_agent = builder.compile()
 - `MessagesState` - Built-in state schema with a `messages` list
 - `ToolNode` - Prebuilt node that executes tool calls from the LLM response
 - `tools_condition` - Routes to "tools" node if LLM made tool calls, otherwise to END
-- `bind_tools()` - Tells the LLM what tools are available
 - `compile()` - Finalizes the graph into a runnable agent
+- **Separation**: Agent logic in `agents/`, graph wiring in `graph/`
 
-### Step 7: Run it
+### Step 8: Run it
 
 First, ingest the PDFs into Chroma:
 ```bash

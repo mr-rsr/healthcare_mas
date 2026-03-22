@@ -2,7 +2,7 @@
 Branch 1: FAQ Agent with RAG
 Run: python cli.py
 """
-from agents.faq_agent import faq_agent
+from graph.faq_graph import faq_graph
 
 print("=" * 50)
 print("  HealthFirst Medical Clinic")
@@ -17,5 +17,5 @@ while True:
         print("Goodbye!")
         break
 
-    result = faq_agent.invoke({"messages": [("user", user_input)]})
+    result = faq_graph.invoke({"messages": [("user", user_input)]})
     print(f"\nBot: {result['messages'][-1].content}\n")
