@@ -2,7 +2,6 @@
 Branch 4: FAQ + Booking + Email + Memory
 Run: python cli.py
 """
-import asyncio
 import uuid
 from graph.faq_graph import faq_graph
 from config.memory import store
@@ -26,7 +25,7 @@ def run_faq(thread_id: str):
         print(f"\nBot: {result['messages'][-1].content}\n")
 
 
-async def run_booking(thread_id: str, user_id: str):
+def run_booking(thread_id: str, user_id: str):
     """Interactive booking flow with memory."""
     from graph.booking_graph import build_booking_graph
     from graph.confirmation_graph import build_confirmation_graph
@@ -35,11 +34,11 @@ async def run_booking(thread_id: str, user_id: str):
 
     print("\nConnecting to Composio MCP server...")
     try:
-        booking_graph, booking_client = await build_booking_graph()
-        confirmation_graph, confirmation_client = await build_confirmation_graph()
+        booking_graph, booking_client = build_booking_graph()
+        confirmation_graph, confirmation_client = build_confirmation_graph()
     except Exception as e:
         print(f"Error: {e}")
-        print("Make sure Composio MCP server is running: composio mcp start")
+        print("Make sure Composio MCP server is running.")
         return
 
     # Check if user has saved preferences
@@ -53,40 +52,35 @@ async def run_booking(thread_id: str, user_id: str):
     print("I'll help you book an appointment. Multi-turn enabled!")
     print("Type 'back' to return to menu\n")
 
-    try:
-        while True:
-            user_input = input("You: ")
-            if user_input.lower() in ["back", "menu", "b"]:
-                break
+    while True:
+        user_input = input("You: ")
+        if user_input.lower() in ["back", "menu", "b"]:
+            break
 
-            result = await booking_graph.ainvoke(
-                {"messages": [("user", user_input)]}, config
+        result = booking_graph.invoke(
+            {"messages": [("user", user_input)]}, config
+        )
+        response = result["messages"][-1]
+        print(f"\nBot: {response.content}\n")
+
+        # Check if booking was completed
+        if any(
+            hasattr(m, "type") and m.type == "tool"
+            and "calendar" in getattr(m, "name", "").lower()
+            for m in result["messages"]
+        ):
+            store.put(
+                ("users", user_id, "preferences"),
+                "last_booking",
+                {"doctor": "from conversation", "timestamp": str(uuid.uuid4())[:8]},
             )
-            response = result["messages"][-1]
-            print(f"\nBot: {response.content}\n")
 
-            # Check if booking was completed
-            if any(
-                hasattr(m, "type") and m.type == "tool"
-                and "calendar" in getattr(m, "name", "").lower()
-                for m in result["messages"]
-            ):
-                # Save user preference for next time
-                store.put(
-                    ("users", user_id, "preferences"),
-                    "last_booking",
-                    {"doctor": "from conversation", "timestamp": str(uuid.uuid4())[:8]},
-                )
-
-                print("Sending confirmation email...")
-                summary = f"Send a confirmation email based on this booking: {response.content}"
-                confirm_result = await confirmation_graph.ainvoke(
-                    {"messages": [("user", summary)]}
-                )
-                print(f"\nBot: {confirm_result['messages'][-1].content}\n")
-    finally:
-        await booking_client.close()
-        await confirmation_client.close()
+            print("Sending confirmation email...")
+            summary = f"Send a confirmation email based on this booking: {response.content}"
+            confirm_result = confirmation_graph.invoke(
+                {"messages": [("user", summary)]}
+            )
+            print(f"\nBot: {confirm_result['messages'][-1].content}\n")
 
 
 def show_memory_demo():
@@ -110,7 +104,6 @@ def main():
     print("  FAQ + Booking + Memory")
     print("=" * 50)
 
-    # Session setup
     user_id = input("\nEnter your user ID (or press Enter for 'demo_user'): ").strip()
     if not user_id:
         user_id = "demo_user"
@@ -130,7 +123,7 @@ def main():
         if choice == "1":
             run_faq(thread_id)
         elif choice == "2":
-            asyncio.run(run_booking(thread_id, user_id))
+            run_booking(thread_id, user_id)
         elif choice == "3":
             show_memory_demo()
         elif choice.lower() == "n":
