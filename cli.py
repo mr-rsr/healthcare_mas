@@ -2,7 +2,6 @@
 Branch 3: FAQ + Booking + Email Confirmation
 Run: python cli.py
 """
-import asyncio
 from graph.faq_graph import faq_graph
 
 
@@ -20,18 +19,18 @@ def run_faq():
         print(f"\nBot: {result['messages'][-1].content}\n")
 
 
-async def run_booking():
+def run_booking():
     """Interactive booking flow: collect details -> create event -> send confirmation."""
     from graph.booking_graph import build_booking_graph
     from graph.confirmation_graph import build_confirmation_graph
 
     print("\nConnecting to Composio MCP server...")
     try:
-        booking_graph, booking_client = await build_booking_graph()
-        confirmation_graph, confirmation_client = await build_confirmation_graph()
+        booking_graph, booking_client = build_booking_graph()
+        confirmation_graph, confirmation_client = build_confirmation_graph()
     except Exception as e:
         print(f"Error: {e}")
-        print("Make sure Composio MCP server is running: composio mcp start")
+        print("Make sure Composio MCP server is running.")
         return
 
     print("\n--- Booking Mode ---")
@@ -39,61 +38,53 @@ async def run_booking():
     print("Type 'back' to return to menu\n")
 
     booking_messages = []
-    try:
-        while True:
-            user_input = input("You: ")
-            if user_input.lower() in ["back", "menu", "b"]:
-                break
+    while True:
+        user_input = input("You: ")
+        if user_input.lower() in ["back", "menu", "b"]:
+            break
 
-            booking_messages.append(("user", user_input))
-            result = await booking_graph.ainvoke({"messages": booking_messages})
-            response = result["messages"][-1]
-            booking_messages = result["messages"]
-            print(f"\nBot: {response.content}\n")
+        booking_messages.append(("user", user_input))
+        result = booking_graph.invoke({"messages": booking_messages})
+        response = result["messages"][-1]
+        booking_messages = result["messages"]
+        print(f"\nBot: {response.content}\n")
 
-            # Check if booking was completed (calendar event created)
-            if any(
-                hasattr(m, "type") and m.type == "tool"
-                and "calendar" in getattr(m, "name", "").lower()
-                for m in result["messages"]
-            ):
-                print("Sending confirmation email...")
-                # Build a summary message for the confirmation agent
-                summary = f"Send a confirmation email based on this booking conversation: {response.content}"
-                confirm_result = await confirmation_graph.ainvoke(
-                    {"messages": [("user", summary)]}
-                )
-                print(f"\nBot: {confirm_result['messages'][-1].content}\n")
-    finally:
-        await booking_client.close()
-        await confirmation_client.close()
+        # Check if booking was completed (calendar event created)
+        if any(
+            hasattr(m, "type") and m.type == "tool"
+            and "calendar" in getattr(m, "name", "").lower()
+            for m in result["messages"]
+        ):
+            print("Sending confirmation email...")
+            summary = f"Send a confirmation email based on this booking: {response.content}"
+            confirm_result = confirmation_graph.invoke(
+                {"messages": [("user", summary)]}
+            )
+            print(f"\nBot: {confirm_result['messages'][-1].content}\n")
 
 
-async def run_confirmation():
+def run_confirmation():
     """Standalone email sending for testing."""
     from graph.confirmation_graph import build_confirmation_graph
 
     print("\nConnecting to Composio MCP server...")
     try:
-        confirmation_graph, client = await build_confirmation_graph()
+        confirmation_graph, client = build_confirmation_graph()
     except Exception as e:
         print(f"Error: {e}")
-        print("Make sure Composio MCP server is running: composio mcp start")
+        print("Make sure Composio MCP server is running.")
         return
 
     print("\n--- Email Confirmation Mode ---")
     print("Test sending confirmation emails.")
     print("Type 'back' to return to menu\n")
 
-    try:
-        while True:
-            user_input = input("You: ")
-            if user_input.lower() in ["back", "menu", "b"]:
-                break
-            result = await confirmation_graph.ainvoke({"messages": [("user", user_input)]})
-            print(f"\nBot: {result['messages'][-1].content}\n")
-    finally:
-        await client.close()
+    while True:
+        user_input = input("You: ")
+        if user_input.lower() in ["back", "menu", "b"]:
+            break
+        result = confirmation_graph.invoke({"messages": [("user", user_input)]})
+        print(f"\nBot: {result['messages'][-1].content}\n")
 
 
 def main():
@@ -113,9 +104,9 @@ def main():
         if choice == "1":
             run_faq()
         elif choice == "2":
-            asyncio.run(run_booking())
+            run_booking()
         elif choice == "3":
-            asyncio.run(run_confirmation())
+            run_confirmation()
         elif choice.lower() in ["q", "quit", "exit"]:
             print("Goodbye!")
             break
