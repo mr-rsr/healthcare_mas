@@ -198,7 +198,7 @@ python cli.py
 Choose: 2
 You: I want to book an appointment
 Bot: I'd be happy to help! Let me collect some details...
-You: John Smith, john@email.com, Dr. Chen, next Monday at 10am, annual checkup
+You: John Smith, raj@enterprisesi.co, Dr. Chen, next Monday at 10am(26-03-2026), annual checkup
 Bot: I've created a calendar event for your appointment...
 ```
 
