@@ -8,10 +8,10 @@ from agents.booking_agent import create_booking_node
 from tools.mcp_tools import get_mcp_client, get_calendar_tools
 
 
-def build_booking_graph():
+async def build_booking_graph():
     """Build and return the booking graph with MCP calendar tools."""
     client = get_mcp_client()
-    calendar_tools = get_calendar_tools(client)
+    calendar_tools = await get_calendar_tools(client)
 
     if not calendar_tools:
         raise RuntimeError("No calendar tools found. Is Composio MCP server running?")

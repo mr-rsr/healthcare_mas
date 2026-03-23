@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from langchain_aws import ChatBedrockConverse, BedrockEmbeddings
 
 embeddings = BedrockEmbeddings(model_id="amazon.titan-embed-text-v2:0")

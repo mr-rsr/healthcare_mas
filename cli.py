@@ -2,6 +2,7 @@
 Branch 4: FAQ + Booking + Email + Memory
 Run: python cli.py
 """
+import asyncio
 import uuid
 from graph.faq_graph import faq_graph
 from config.memory import store
@@ -34,8 +35,8 @@ def run_booking(thread_id: str, user_id: str):
 
     print("\nConnecting to Composio MCP server...")
     try:
-        booking_graph, booking_client = build_booking_graph()
-        confirmation_graph, confirmation_client = build_confirmation_graph()
+        booking_graph, booking_client = asyncio.run(build_booking_graph())
+        confirmation_graph, confirmation_client = asyncio.run(build_confirmation_graph())
     except Exception as e:
         print(f"Error: {e}")
         print("Make sure Composio MCP server is running.")

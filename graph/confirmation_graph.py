@@ -7,10 +7,10 @@ from agents.confirmation_agent import create_confirmation_node
 from tools.mcp_tools import get_mcp_client, get_gmail_tools
 
 
-def build_confirmation_graph():
+async def build_confirmation_graph():
     """Build and return the confirmation graph with MCP Gmail tools."""
     client = get_mcp_client()
-    gmail_tools = get_gmail_tools(client)
+    gmail_tools = await get_gmail_tools(client)
 
     if not gmail_tools:
         raise RuntimeError("No Gmail tools found. Is Composio MCP server running?")
