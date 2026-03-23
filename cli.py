@@ -45,7 +45,7 @@ def run_booking():
             break
 
         booking_messages.append(("user", user_input))
-        result = booking_graph.invoke({"messages": booking_messages})
+        result = asyncio.run(booking_graph.ainvoke({"messages": booking_messages}))
         response = result["messages"][-1]
         booking_messages = result["messages"]
         print(f"\nBot: {response.content}\n")
@@ -58,9 +58,9 @@ def run_booking():
         ):
             print("Sending confirmation email...")
             summary = f"Send a confirmation email based on this booking: {response.content}"
-            confirm_result = confirmation_graph.invoke(
+            confirm_result = asyncio.run(confirmation_graph.ainvoke(
                 {"messages": [("user", summary)]}
-            )
+            ))
             print(f"\nBot: {confirm_result['messages'][-1].content}\n")
 
 
@@ -84,7 +84,7 @@ def run_confirmation():
         user_input = input("You: ")
         if user_input.lower() in ["back", "menu", "b"]:
             break
-        result = confirmation_graph.invoke({"messages": [("user", user_input)]})
+        result = asyncio.run(confirmation_graph.ainvoke({"messages": [("user", user_input)]}))
         print(f"\nBot: {result['messages'][-1].content}\n")
 
 
