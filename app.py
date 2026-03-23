@@ -136,10 +136,16 @@ if prompt := st.chat_input("Type your message..."):
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            result = graph.invoke(
-                {"messages": [("user", prompt)]},
-                config,
-            )
+            if st.session_state.mode == "full":
+                result = asyncio.run(graph.ainvoke(
+                    {"messages": [("user", prompt)]},
+                    config,
+                ))
+            else:
+                result = graph.invoke(
+                    {"messages": [("user", prompt)]},
+                    config,
+                )
             response = result["messages"][-1].content
             st.markdown(response)
 

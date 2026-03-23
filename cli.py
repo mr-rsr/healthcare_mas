@@ -70,9 +70,9 @@ def run_full_system():
             print(f"New thread: {thread_id}\n")
             continue
 
-        result = graph.invoke(
+        result = asyncio.run(graph.ainvoke(
             {"messages": [("user", user_input)]}, config
-        )
+        ))
         print(f"\nBot: {result['messages'][-1].content}\n")
 
 
