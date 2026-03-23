@@ -4,6 +4,7 @@ Run: python cli.py
 """
 import asyncio
 from graph.faq_graph import faq_graph
+from langchain_core.messages import HumanMessage
 
 
 def run_faq():
@@ -11,21 +12,23 @@ def run_faq():
     print("\n--- FAQ Mode ---")
     print("Ask about clinic hours, doctors, policies, etc.")
     print("Type 'back' to return to menu\n")
-
+    messages = []
     while True:
         user_input = input("You: ")
         if user_input.lower() in ["back", "menu", "b"]:
             break
-        result = faq_graph.invoke({"messages": [("user", user_input)]})
+        messages.append(HumanMessage(content=user_input))
+        result = faq_graph.invoke({"messages": messages})
         print(f"\nBot: {result['messages'][-1].content}\n")
 
 
 def run_booking():
     """Interactive booking chat loop with MCP calendar tools."""
     from graph.booking_graph import build_booking_graph
-
+    messages = []
     print("\nConnecting to Composio MCP server...")
     try:
+        
         booking_graph, client = asyncio.run(build_booking_graph())
     except Exception as e:
         print(f"Error: {e}")
@@ -40,7 +43,8 @@ def run_booking():
         user_input = input("You: ")
         if user_input.lower() in ["back", "menu", "b"]:
             break
-        result = booking_graph.invoke({"messages": [("user", user_input)]})
+        messages.append(HumanMessage(content=user_input))
+        result = asyncio.run(booking_graph.ainvoke({"messages": messages}))
         print(f"\nBot: {result['messages'][-1].content}\n")
 
 
