@@ -2,6 +2,7 @@
 Branch 2: FAQ Agent + Booking Agent
 Run: python cli.py
 """
+import asyncio
 from graph.faq_graph import faq_graph
 
 
@@ -25,7 +26,7 @@ def run_booking():
 
     print("\nConnecting to Composio MCP server...")
     try:
-        booking_graph, client = build_booking_graph()
+        booking_graph, client = asyncio.run(build_booking_graph())
     except Exception as e:
         print(f"Error: {e}")
         print("Make sure Composio MCP server is running.")
