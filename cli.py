@@ -3,6 +3,7 @@ Full Multi-Agent System with Supervisor Routing
 Run: python cli.py          (FAQ only, no MCP needed)
 Run: python cli.py --full   (all agents, needs Composio MCP)
 """
+import asyncio
 import sys
 import uuid
 
@@ -37,7 +38,7 @@ def run_full_system():
 
     print("Connecting to Composio MCP server...")
     try:
-        graph, client = build_workflow()
+        graph, client = asyncio.run(build_workflow())
     except Exception as e:
         print(f"Error: {e}")
         print("Falling back to FAQ-only mode...\n")
