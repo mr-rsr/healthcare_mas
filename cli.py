@@ -12,8 +12,8 @@ print("Ask about clinic hours, doctors, policies, etc.")
 print("Type 'quit' to exit\n")
 
 while True:
-    user_input = input("You: ")
-    if user_input.lower() in ["quit", "exit", "q"]:
+    user_input = input("You: ").strip()
+    if not user_input or user_input.lower() in ("quit", "exit","q"):
         print("Goodbye!")
         break
 
