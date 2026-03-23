@@ -4,6 +4,7 @@ Wires: supervisor -> faq_agent / booking_agent -> confirmation_agent
 """
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
+from langchain_core.messages import ToolMessage
 from config.memory import checkpointer, store
 from agents.state import AgentState
 from agents.supervisor import supervisor_node
@@ -19,6 +20,24 @@ def route_supervisor(state: AgentState):
     if next_agent == "FINISH":
         return END
     return next_agent
+
+
+def route_after_booking(state: AgentState):
+    """Route booking agent output:
+    - Has tool calls → "booking_tools" (execute the calendar tool)
+    - Just processed a tool result → "confirmation_agent" (booking done, send email)
+    - Otherwise → END (still collecting info from user)
+    """
+    last_msg = state["messages"][-1]
+    # If the LLM wants to call a tool, route to tools
+    if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
+        return "booking_tools"
+    # If the previous message was a ToolMessage, the booking tool just ran
+    # and the LLM is now summarising the result → go to confirmation
+    if len(state["messages"]) >= 2 and isinstance(state["messages"][-2], ToolMessage):
+        return "confirmation_agent"
+    # Otherwise the agent is still asking the user for details → END
+    return END
 
 
 async def build_workflow():
@@ -59,24 +78,25 @@ async def build_workflow():
         END: END,
     })
 
-    # FAQ: tools_condition routes to "faq_tools" if tool calls, else back to "supervisor"
+    # FAQ: tools_condition routes to "faq_tools" if tool calls, else END
     builder.add_conditional_edges("faq_agent", tools_condition, {
         "tools": "faq_tools",
-        END: "supervisor",
+        END: END,
     })
     builder.add_edge("faq_tools", "faq_agent")
 
-    # Booking: tools_condition routes to "booking_tools" if tool calls, else to "confirmation_agent"
-    builder.add_conditional_edges("booking_agent", tools_condition, {
-        "tools": "booking_tools",
-        END: "confirmation_agent",
+    # Booking: custom router — tools / confirmation (after tool success) / END (need more info)
+    builder.add_conditional_edges("booking_agent", route_after_booking, {
+        "booking_tools": "booking_tools",
+        "confirmation_agent": "confirmation_agent",
+        END: END,
     })
     builder.add_edge("booking_tools", "booking_agent")
 
-    # Confirmation: tools_condition routes to "confirmation_tools" if tool calls, else back to "supervisor"
+    # Confirmation: tools_condition routes to "confirmation_tools" if tool calls, else END
     builder.add_conditional_edges("confirmation_agent", tools_condition, {
         "tools": "confirmation_tools",
-        END: "supervisor",
+        END: END,
     })
     builder.add_edge("confirmation_tools", "confirmation_agent")
 
