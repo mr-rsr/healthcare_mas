@@ -6,6 +6,22 @@ Run: python cli.py --full   (all agents, needs Composio MCP)
 import asyncio
 import sys
 import uuid
+from langchain_core.messages import AIMessage
+
+
+def _extract_text(messages) -> str:
+    """Extract text from the last AI message, handling Bedrock's list content format."""
+    for msg in reversed(messages):
+        if not isinstance(msg, AIMessage):
+            continue
+        content = msg.content
+        if isinstance(content, str) and content.strip():
+            return content
+        if isinstance(content, list):
+            parts = [b["text"] for b in content if isinstance(b, dict) and b.get("type") == "text"]
+            if parts:
+                return "\n".join(parts)
+    return "I'm sorry, I couldn't generate a response. Please try again."
 
 
 def run_faq_only():
@@ -29,7 +45,7 @@ def run_faq_only():
             print("Goodbye!")
             break
         result = graph.invoke({"messages": [("user", user_input)]}, config)
-        print(f"\nBot: {result['messages'][-1].content}\n")
+        print(f"\nBot: {_extract_text(result['messages'])}\n")
 
 
 def run_full_system():
@@ -73,7 +89,7 @@ def run_full_system():
         result = asyncio.run(graph.ainvoke(
             {"messages": [("user", user_input)]}, config
         ))
-        print(f"\nBot: {result['messages'][-1].content}\n")
+        print(f"\nBot: {_extract_text(result['messages'])}\n")
 
 
 def main():

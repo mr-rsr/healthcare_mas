@@ -6,8 +6,25 @@ import uuid
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
+from langchain_core.messages import AIMessage
 from pydantic import BaseModel
 from graph.workflow import build_workflow, build_faq_only_workflow
+
+
+def _extract_text(messages) -> str:
+    """Extract text from the last AI message, handling Bedrock's list content format."""
+    for msg in reversed(messages):
+        if not isinstance(msg, AIMessage):
+            continue
+        content = msg.content
+        if isinstance(content, str) and content.strip():
+            return content
+        if isinstance(content, list):
+            parts = [b["text"] for b in content if isinstance(b, dict) and b.get("type") == "text"]
+            if parts:
+                return "\n".join(parts)
+    return "I'm sorry, I couldn't generate a response. Please try again."
+
 
 # Global graph and MCP client (set during lifespan)
 graph = None
@@ -74,7 +91,7 @@ async def chat(request: ChatRequest):
             {"messages": [("user", request.message)]}, config
         )
         return ChatResponse(
-            response=result["messages"][-1].content,
+            response=_extract_text(result["messages"]),
             thread_id=thread_id,
             user_id=request.user_id,
         )
