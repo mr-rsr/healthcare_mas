@@ -5,7 +5,7 @@ Add an appointment booking agent that creates Google Calendar events using the C
 
 ## What's New (from Milestone 1)
 ```
-NEW  tools/mcp_tools.py          # Composio MCP client (calendar + gmail tools)
+NEW  tools/mcp_tools.py          # Composio MCP client (calendar tools only)
 NEW  agents/booking_agent.py     # Booking node function (calendar tools)
 NEW  graph/booking_graph.py      # Booking StateGraph (async, MCP tools)
 UPD  cli.py                      # Mode selection: FAQ or Booking
