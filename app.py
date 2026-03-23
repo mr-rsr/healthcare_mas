@@ -6,7 +6,25 @@ Run: streamlit run app.py
 import asyncio
 import uuid
 import streamlit as st
+from langchain_core.messages import AIMessage
 from graph.workflow import build_faq_only_workflow, build_workflow
+
+
+def _extract_text(messages) -> str:
+    """Extract text from the last AI message, handling Bedrock's list content format."""
+    for msg in reversed(messages):
+        if not isinstance(msg, AIMessage):
+            continue
+        content = msg.content
+        # String content — return directly if non-empty
+        if isinstance(content, str) and content.strip():
+            return content
+        # List of content blocks (Bedrock format) — extract text parts
+        if isinstance(content, list):
+            parts = [b["text"] for b in content if isinstance(b, dict) and b.get("type") == "text"]
+            if parts:
+                return "\n".join(parts)
+    return "I'm sorry, I couldn't generate a response. Please try again."
 
 # --- Page Config ---
 st.set_page_config(
@@ -146,7 +164,7 @@ if prompt := st.chat_input("Type your message..."):
                     {"messages": [("user", prompt)]},
                     config,
                 )
-            response = result["messages"][-1].content
+            response = _extract_text(result["messages"])
             st.markdown(response)
 
     st.session_state.messages.append({"role": "assistant", "content": response})

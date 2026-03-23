@@ -20,7 +20,9 @@ The confirmation email should include:
 
 Keep the email professional and friendly. Use a clear subject line like:
 "Appointment Confirmation - HealthFirst Medical Clinic"
-"""
+
+IMPORTANT: After successfully sending the email, always reply to the patient
+confirming that the email has been sent and summarise the appointment details."""
 
 
 def create_confirmation_node(gmail_tools):
