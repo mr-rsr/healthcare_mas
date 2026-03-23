@@ -2,6 +2,7 @@
 Branch 3: FAQ + Booking + Email Confirmation
 Run: python cli.py
 """
+import asyncio
 from graph.faq_graph import faq_graph
 
 
@@ -26,8 +27,8 @@ def run_booking():
 
     print("\nConnecting to Composio MCP server...")
     try:
-        booking_graph, booking_client = build_booking_graph()
-        confirmation_graph, confirmation_client = build_confirmation_graph()
+        booking_graph, booking_client = asyncio.run(build_booking_graph())
+        confirmation_graph, confirmation_client = asyncio.run(build_confirmation_graph())
     except Exception as e:
         print(f"Error: {e}")
         print("Make sure Composio MCP server is running.")
@@ -69,7 +70,7 @@ def run_confirmation():
 
     print("\nConnecting to Composio MCP server...")
     try:
-        confirmation_graph, client = build_confirmation_graph()
+        confirmation_graph, client = asyncio.run(build_confirmation_graph())
     except Exception as e:
         print(f"Error: {e}")
         print("Make sure Composio MCP server is running.")
